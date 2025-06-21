@@ -65,6 +65,59 @@ typedef struct
     char* response;
 }config;
 
+char* Read_Name(unsigned char* reader,unsigned char* buffer,int *count)
+{
+    unsigned char* name;
+    unsigned int p=0,jumped=0,offset;
+    int i,j;
+
+    *count=1;
+    name=(unsigned char*)malloc(256);
+
+    name[0]='\0';
+
+    while (*reader!=0)
+    {
+        if(*reader>=192) //  192 = 1100 0000(first two bytes) 
+        {
+            offset=(*reader)+*(reader+1)-49152; // 49152 = 1100 0000 0000 0000   (14 bits after 11 it`s offset)
+            reader=buffer + offset-1;
+            jumped=1;
+        }
+        else
+        {
+            name[p++]=*reader;
+        }
+        reader=reader+1;
+
+        if(jumped == 0)
+        {
+            *count=*count+1;
+        }
+    }
+    name[p]='\0';
+
+    if(jumped==1)
+    {
+        *count=*count+1;
+    }
+
+    for(i=0;i<(int)strlen((const char*)name);i++) 
+    {
+        p=name[i];
+        for(j=0;j<(int)p;j++) 
+        {
+            name[i]=name[i+1];
+            i=i+1;
+        }
+        name[i]='.';
+    }
+    name[i-1]='\0';
+    return name;
+    
+
+}
+
 config* import_config()
 {
     config* res=(config*)malloc(sizeof(config));
@@ -212,6 +265,90 @@ config* import_config()
 int main(int argc,char *argv[])
 {
     config *conf= import_config();   
+
+    int sockfd=socket(AF_INET,SOCK_DGRAM,0);
+    if (sockfd < 0) {
+        perror("socket creation failed");
+        exit(1);
+    }
+
+    struct sockaddr_in servaddr,cliaddr; 
+    memset(&servaddr, 0, sizeof(servaddr));
+    memset(&cliaddr, 0, sizeof(cliaddr));
+
+    servaddr.sin_family=AF_INET;
+    servaddr.sin_addr.s_addr=INADDR_ANY;
+    servaddr.sin_port=53;
+
+    if (bind(sockfd, (const struct sockaddr *)&servaddr, sizeof(servaddr)) < 0) {
+        perror("bind failed");
+        exit(1);
+    }
+
+
+    int n;
+    char buff[512];
+    while(1)
+    {
+        n=recvfrom(sockfd,buff,sizeof(buff),0,&cliaddr,sizeof(cliaddr));
+        if(n<0)
+        {
+            puts("recvfrom failed");
+            continue;
+        }
+
+        DNS_HEADER *dns_hdr=(DNS_HEADER*)buff;
+
+        dns_hdr->id = ntohs(dns_hdr->id);
+        dns_hdr->qd_count = ntohs(dns_hdr->qd_count);
+        dns_hdr->an_count = ntohs(dns_hdr->an_count);
+        dns_hdr->ns_count = ntohs(dns_hdr->ns_count);
+        dns_hdr->ar_count = ntohs(dns_hdr->ar_count);
+
+        if(dns_hdr->qr !=0)
+        {
+            puts("Ignored non-query");
+            continue;
+        }
+
+        char*qname_ptr=(char*)(buff+sizeof(DNS_HEADER));
+        short qname_size=0;
+        char* name =Read_Name(qname_ptr,buff,&qname_size);
+
+        bool found=0;
+        for(int i=0;i<conf->bl_tokens;i++)
+        {
+            if(name==conf->black_list[i]){found=1;break;};
+        }
+        if(found)
+        {
+            dns_hdr->qr=1;
+            dns_hdr->aa=1;
+            dns_hdr->rd=1;
+            dns_hdr->tc=1;
+            dns_hdr->z=1;
+            dns_hdr->ra=1;
+
+            dns_hdr->rcode=5;
+
+            dns_hdr->an_count=0;
+            dns_hdr->ns_count=0;
+            dns_hdr->ar_count=0;
+
+            dns_hdr->id=htons(dns_hdr->id);
+            dns_hdr->qd_count=htons(dns_hdr->qd_count);
+            dns_hdr->an_count=htons(dns_hdr->an_count);
+            dns_hdr->ns_count=htons(dns_hdr->ns_count);
+            dns_hdr->ar_count=htons(dns_hdr->ar_count);
+
+            sendto(sockfd, (char *)buff, sizeof(DNS_HEADER) + qname_size + sizeof(QUESTION),0, (const struct sockaddr *)&cliaddr, sizeof(cliaddr));            continue;
+        }
+
+
+
+    }
+
+
     free(conf);
 
     return 0;
