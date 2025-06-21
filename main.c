@@ -2,6 +2,60 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <netinet/in.h>
+#include <stdbool.h>
+
+
+typedef struct 
+{
+    unsigned short id:16;
+
+    unsigned char qr:1;
+    unsigned char opcode:4;
+    unsigned char aa:1;
+    unsigned char tc:1;
+    unsigned char rd:1;
+    unsigned char ra:1;
+    unsigned char z:3;
+    unsigned char rcode:4;
+
+    unsigned short qd_count:16;
+    unsigned short an_count:16;
+    unsigned short ns_count:16;
+    unsigned short ar_count:16;
+
+}DNS_HEADER;
+
+typedef struct 
+{
+    unsigned short QT;
+    unsigned short QC;
+
+}QUESTION;
+
+#pragma pack(push, 1)
+struct R_DATA
+{
+    unsigned short type;
+    unsigned short _class;
+    unsigned int ttl;
+    unsigned short data_len;
+};
+#pragma pack(pop)
+
+struct RES_RECORD
+{
+    unsigned char *name;
+    struct R_DATA *resource;
+    unsigned char *rdata;
+};
+
+typedef struct 
+{
+    unsigned char* name;
+    QUESTION *ques;
+}QUERY;
+
 
 typedef struct 
 {
@@ -13,7 +67,7 @@ typedef struct
 
 config* import_config()
 {
-    config *res=(config*)malloc(sizeof(config));
+    config* res=(config*)malloc(sizeof(config));
     if(res == NULL)
     {
         fputs("Error allocating memory for config structure\n",stderr);
@@ -153,11 +207,12 @@ config* import_config()
     return res;
 }
 
+
+
 int main(int argc,char *argv[])
 {
-    config *conf= import_config();
+    config *conf= import_config();   
     free(conf);
-
 
     return 0;
 }
