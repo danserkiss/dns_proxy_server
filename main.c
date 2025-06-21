@@ -10,11 +10,22 @@ typedef struct
     char* response;
 }config;
 
-config import_config()
+config* import_config()
 {
-    config res;
+    config *res=(config*)malloc(sizeof(config));
+    if(res == NULL)
+    {
+        fputs("Error allocating memory for config structure\n",stderr);
+        exit(1);
+    }
+
+    res->black_list = NULL;
+    res->bl_tokens = 0;
+    res->upstream_dns_ip = NULL;
+    res->response = NULL;
+
     FILE *config_ptr;
-    config_ptr=fopen("config.txt","r");
+    config_ptr=fopen("./config.txt","r");
     if(config_ptr == NULL)
     {
         fputs("Error opening config file\n",stderr);
@@ -25,7 +36,7 @@ config import_config()
     long lSize = ftell(config_ptr);
     rewind(config_ptr);
 
-    char * config_file_buffer = (char*)malloc(sizeof(char)*lSize);
+    char * config_file_buffer = (char*)malloc(sizeof(char)*(lSize+1));
     if(config_file_buffer==NULL)
     {
         fputs("Error allocating memory for config_file_buffer\n",stderr);
@@ -40,6 +51,8 @@ config import_config()
     }
     fclose(config_ptr);
 
+    config_file_buffer[lSize] = '\0';
+
     char* start_upstr = strstr(config_file_buffer,"upstream_dns_ip=");
     if (start_upstr == NULL) {
         fputs("Error: 'upstream_dns_ip=' not found in config file\n", stderr);
@@ -47,7 +60,7 @@ config import_config()
         exit(1);
     }
     char* start_bl = strstr(config_file_buffer,"blacklist=");
-    if (start_upstr == NULL) {
+    if (start_bl == NULL) {
         fputs("Error: 'blacklist=' not found in config file\n", stderr);
         free(config_file_buffer);
         exit(1);
@@ -62,17 +75,20 @@ config import_config()
     start_upstr+=strlen("upstream_dns_ip=");
     start_bl+=strlen("blacklist=");
     start_resp+=strlen("response=");
-    char* end_upstr =strstr(start_upstr,"\n");
-    char* end_bl =strstr(start_bl,"\n");
-    char* end_resp =strstr(start_resp,"\n");
+    char* end_upstr =strchr(start_upstr,'\n');
+    char* end_bl =strchr(start_bl,'\n');
+    char* end_resp =strchr(start_resp,'\n');
 
-    int len_upstr=strlen(start_upstr)-strlen(end_upstr);
-    int len_bl=strlen(start_bl)-strlen(end_bl);
-    int len_resp=strlen(start_resp)-strlen(end_resp);
+    int len_upstr=end_upstr-start_upstr;
+    int len_bl=end_bl-start_bl;
+    int len_resp=end_resp-start_resp;
 
-    char* upstream_dns_ip=(char*)malloc(len_upstr);
-    char* blacklist=(char*)malloc(len_bl);
-    char* response=(char*)malloc(len_resp);
+    char* upstream_dns_ip=(char*)malloc(len_upstr+1);
+    upstream_dns_ip[len_upstr] = '\0';
+    char* blacklist=(char*)malloc(len_bl+1);
+    blacklist[len_bl] = '\0';
+    char* response=(char*)malloc(len_resp+1);
+    response[len_resp] = '\0';
 
     strncpy(upstream_dns_ip,start_upstr,len_upstr);
     strncpy(blacklist,start_bl,len_bl);
@@ -80,7 +96,7 @@ config import_config()
 
     free(config_file_buffer);
 
-    char temp_blacklist[strlen(blacklist) + 1];
+    char* temp_blacklist=malloc(strlen(blacklist)+1);
     strcpy(temp_blacklist, blacklist);
 
     int num_tokens = 0;
@@ -89,6 +105,7 @@ config import_config()
         num_tokens++;
         temp_token = strtok(NULL, ",");
     }
+    free(temp_blacklist);
 
     char** blacklist_filtered;
     char* token;
@@ -103,29 +120,30 @@ config import_config()
         token=strtok(blacklist,",");
         for(int i=0;token!=NULL;i++)
         {
-            blacklist_filtered[i]=(char*)malloc(strlen(token)+1);
+            int token_len=strlen(token);
+            blacklist_filtered[i]=(char*)malloc(token_len+1);
             if(blacklist_filtered[i]==NULL)
             {
                 fputs("Error allocating memory for blacklist_filtered\n",stderr);
                 exit(1);
             }
             strcpy(blacklist_filtered[i],token);
-            token=strtok(NULL,",");
+            token=strtok(NULL,",\n");
         }    
-        res.black_list=blacklist_filtered;
+        res->black_list=blacklist_filtered;
     }
     else
     {
         fputs("Blacklist is blank\n",stdout);
-        res.black_list=NULL;
+        res->black_list=NULL;
     }
 
     
     free(blacklist);
     
-    res.upstream_dns_ip=upstream_dns_ip;
-    res.response=response;
-    res.bl_tokens=num_tokens;
+    res->upstream_dns_ip=upstream_dns_ip;
+    res->response=response;
+    res->bl_tokens=num_tokens;
     
 
     return res;
@@ -133,21 +151,15 @@ config import_config()
 
 int main(int argc,char *argv[])
 {
-    config conf= import_config();
-    printf("%s\n",conf.black_list[0]);
-    printf("%s\n",conf.black_list[1]);
-    printf("%s\n",conf.black_list[2]);
+    config *conf= import_config();
+    printf("%s\n",conf->upstream_dns_ip);
+    printf("%s\n",conf->black_list[0]);
+    printf("%s\n",conf->black_list[1]);
+    printf("%s\n",conf->black_list[2]);
+    printf("%s\n",conf->response);
+    free(conf);
 
-    free(conf.upstream_dns_ip);
-    free(conf.response);
-    if (conf.black_list != NULL) { 
-        for (int i = 0; i < conf.bl_tokens; ++i) {
-            if (conf.black_list[i] != NULL) {
-                free(conf.black_list[i]);
-            }
-        }
-        free(conf.black_list); 
-    }
+
     return 0;
 }
 
