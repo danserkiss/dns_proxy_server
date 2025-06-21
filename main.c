@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>
 
 typedef struct 
 {
@@ -56,19 +57,16 @@ config* import_config()
     char* start_upstr = strstr(config_file_buffer,"upstream_dns_ip=");
     if (start_upstr == NULL) {
         fputs("Error: 'upstream_dns_ip=' not found in config file\n", stderr);
-        free(config_file_buffer);
         exit(1);
     }
     char* start_bl = strstr(config_file_buffer,"blacklist=");
     if (start_bl == NULL) {
         fputs("Error: 'blacklist=' not found in config file\n", stderr);
-        free(config_file_buffer);
         exit(1);
     }    
     char* start_resp = strstr(config_file_buffer,"response=");
     if (start_resp == NULL) {
         fputs("Error: 'response=' not found in config file\n", stderr);
-        free(config_file_buffer);
         exit(1);
     }   
         
@@ -78,6 +76,12 @@ config* import_config()
     char* end_upstr =strchr(start_upstr,'\n');
     char* end_bl =strchr(start_bl,'\n');
     char* end_resp =strchr(start_resp,'\n');
+
+    if(start_upstr==end_upstr || start_resp==end_resp)
+    {
+        fputs("Error: upstream_dns_ip or response is blank\n", stderr);
+        exit(1);
+    }
 
     int len_upstr=end_upstr-start_upstr;
     int len_bl=end_bl-start_bl;
@@ -152,11 +156,6 @@ config* import_config()
 int main(int argc,char *argv[])
 {
     config *conf= import_config();
-    printf("%s\n",conf->upstream_dns_ip);
-    printf("%s\n",conf->black_list[0]);
-    printf("%s\n",conf->black_list[1]);
-    printf("%s\n",conf->black_list[2]);
-    printf("%s\n",conf->response);
     free(conf);
 
 
