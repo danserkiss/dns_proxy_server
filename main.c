@@ -1,28 +1,21 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
+#include <ctype.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <stdbool.h>
-
+#include <arpa/inet.h>
 
 typedef struct 
 {
-    unsigned short id:16;
-
-    unsigned char qr:1;
-    unsigned char opcode:4;
-    unsigned char aa:1;
-    unsigned char tc:1;
-    unsigned char rd:1;
-    unsigned char ra:1;
-    unsigned char z:3;
-    unsigned char rcode:4;
-
-    unsigned short qd_count:16;
-    unsigned short an_count:16;
-    unsigned short ns_count:16;
-    unsigned short ar_count:16;
+    unsigned short id;
+    unsigned short flags;
+    unsigned short qd_count;
+    unsigned short an_count;
+    unsigned short ns_count;
+    unsigned short ar_count;
 
 }DNS_HEADER;
 
@@ -65,13 +58,13 @@ typedef struct
     char* response;
 }config;
 
-char* Read_Name(unsigned char* reader,unsigned char* buffer,int *count)
+char* Read_Name(unsigned char* reader,unsigned char* dns_message,int *count)
 {
     unsigned char* name;
-    unsigned int p=0,jumped=0,offset;
+    unsigned int p = 0,jumped = 0,offset;
     int i,j;
 
-    *count=1;
+    int bytes_read = 0;
     name=(unsigned char*)malloc(256);
 
     name[0]='\0';
@@ -81,41 +74,31 @@ char* Read_Name(unsigned char* reader,unsigned char* buffer,int *count)
         if(*reader>=192) //  192 = 1100 0000(first two bytes) 
         {
             offset=(*reader)+*(reader+1)-49152; // 49152 = 1100 0000 0000 0000   (14 bits after 11 it`s offset)
-            reader=buffer + offset-1;
-            jumped=1;
+            bytes_read += 2;
+            reader = dns_message + offset;
+            break;
         }
         else
         {
-            name[p++]=*reader;
-        }
-        reader=reader+1;
-
-        if(jumped == 0)
-        {
-            *count=*count+1;
+            int label_len=*reader;
+            strncat((char*)name,reader+1,label_len);
+            strcat((char*)name, ".");
+            reader = reader + label_len + 1;
+            bytes_read += (label_len+1);
         }
     }
-    name[p]='\0';
 
-    if(jumped==1)
+    if(*reader==0)
     {
-        *count=*count+1;
+        bytes_read += 1;
     }
+        *count = bytes_read;
 
-    for(i=0;i<(int)strlen((const char*)name);i++) 
+    if (strlen((const char*)name) > 0 && name[strlen((const char*)name) - 1] == '.') 
     {
-        p=name[i];
-        for(j=0;j<(int)p;j++) 
-        {
-            name[i]=name[i+1];
-            i=i+1;
-        }
-        name[i]='.';
+        name[strlen((const char*)name) - 1] = '\0';
     }
-    name[i-1]='\0';
     return name;
-    
-
 }
 
 config* import_config()
@@ -184,9 +167,9 @@ config* import_config()
     char* end_bl =strchr(start_bl,'\n');
     char* end_resp =strchr(start_resp,'\n');
 
-    if(start_upstr==end_upstr || start_resp==end_resp)
+    if(start_upstr==end_upstr)
     {
-        fputs("Error: upstream_dns_ip or response is blank\n", stderr);
+        fputs("Error: upstream_dns_ip is blank\n", stderr);
         exit(1);
     }
 
@@ -266,86 +249,114 @@ int main(int argc,char *argv[])
 {
     config *conf= import_config();   
 
-    int sockfd=socket(AF_INET,SOCK_DGRAM,0);
-    if (sockfd < 0) {
-        perror("socket creation failed");
+    int client_sockfd=socket(AF_INET,SOCK_DGRAM,0);
+    if (client_sockfd < 0) {
+        perror("client_socket creation failed");
         exit(1);
     }
 
-    struct sockaddr_in servaddr,cliaddr; 
+    struct sockaddr_in servaddr,cliaddr,upstream_dns_addr; 
     memset(&servaddr, 0, sizeof(servaddr));
     memset(&cliaddr, 0, sizeof(cliaddr));
+    memset(&upstream_dns_addr, 0, sizeof(upstream_dns_addr));
+
+    upstream_dns_addr.sin_family=AF_INET;
+    upstream_dns_addr.sin_addr.s_addr=inet_addr(conf->upstream_dns_ip);
+    upstream_dns_addr.sin_port=htons(53);
 
     servaddr.sin_family=AF_INET;
-    servaddr.sin_addr.s_addr=INADDR_ANY;
-    servaddr.sin_port=53;
+    servaddr.sin_addr.s_addr=inet_addr("127.0.0.1");
+    servaddr.sin_port=htons(53);
 
-    if (bind(sockfd, (const struct sockaddr *)&servaddr, sizeof(servaddr)) < 0) {
-        perror("bind failed");
+    if (bind(client_sockfd, (const struct sockaddr *)&servaddr, sizeof(servaddr)) < 0) {
+        perror("client socket bind failed");
         exit(1);
     }
 
 
     int n;
     char buff[512];
+    char buff_copy[512];
+
+    socklen_t cli_len,upstream_len;
     while(1)
     {
-        n=recvfrom(sockfd,buff,sizeof(buff),0,&cliaddr,sizeof(cliaddr));
+        cli_len=sizeof(cliaddr);
+        n=recvfrom(client_sockfd,buff,sizeof(buff),0,(struct sockaddr*)&cliaddr,&cli_len);
         if(n<0)
         {
             puts("recvfrom failed");
             continue;
         }
 
-        DNS_HEADER *dns_hdr=(DNS_HEADER*)buff;
+        memcpy(buff_copy,buff,n);
+
+        DNS_HEADER *dns_hdr=(DNS_HEADER*)buff_copy;
 
         dns_hdr->id = ntohs(dns_hdr->id);
+        dns_hdr->flags = ntohs(dns_hdr->flags);
         dns_hdr->qd_count = ntohs(dns_hdr->qd_count);
         dns_hdr->an_count = ntohs(dns_hdr->an_count);
         dns_hdr->ns_count = ntohs(dns_hdr->ns_count);
         dns_hdr->ar_count = ntohs(dns_hdr->ar_count);
 
-        if(dns_hdr->qr !=0)
-        {
-            puts("Ignored non-query");
-            continue;
-        }
-
-        char*qname_ptr=(char*)(buff+sizeof(DNS_HEADER));
+        char*qname_ptr=(char*)(buff_copy+sizeof(DNS_HEADER));
         short qname_size=0;
-        char* name =Read_Name(qname_ptr,buff,&qname_size);
+        char* name =Read_Name(qname_ptr,buff_copy,&qname_size);
 
         bool found=0;
         for(int i=0;i<conf->bl_tokens;i++)
         {
-            if(name==conf->black_list[i]){found=1;break;};
+            if (strcmp((const char*)name, conf->black_list[i]) == 0) {
+                found = 1; 
+                break;
+            }
         }
+        free(name);
         if(found)
         {
-            dns_hdr->qr=1;
-            dns_hdr->aa=1;
-            dns_hdr->rd=1;
-            dns_hdr->tc=1;
-            dns_hdr->z=1;
-            dns_hdr->ra=1;
+            DNS_HEADER *response_hdr=(DNS_HEADER*)buff;
+            short rcode=5;
+            char* response=conf->response;
+            if (strcasecmp(response, "noerror") == 0) {rcode = 0;} 
+            else if (strcasecmp(response, "formerror") == 0) {rcode = 1;} 
+            else if (strcasecmp(response, "servfail") == 0) {rcode = 2;} 
+            else if (strcasecmp(response, "nxdomain") == 0) {rcode = 3;}
+            else if (strcasecmp(response, "notimp") == 0) {rcode = 4;} 
+            else if (strcasecmp(response, "refused") == 0) {rcode = 5;} 
+            else 
+            {
+                fprintf(stderr, "Warning: Unrecognized 'response' value in config.txt: '%s'. Defaulting to NXDOMAIN (RCODE 3).\n", response);
+                rcode = 3;
+            }
 
-            dns_hdr->rcode=5;
+            unsigned short response_flags=0;
+            response_flags |= (1<<15);
+            response_flags |= rcode;
+            
+            response_hdr->id = htons(dns_hdr->id);
+            response_hdr->flags = htons(response_flags);
+            response_hdr->qd_count = htons(0);
+            response_hdr->an_count = htons(0); 
+            response_hdr->ns_count = htons(0);
+            response_hdr->ar_count = htons(0);
 
-            dns_hdr->an_count=0;
-            dns_hdr->ns_count=0;
-            dns_hdr->ar_count=0;
-
-            dns_hdr->id=htons(dns_hdr->id);
-            dns_hdr->qd_count=htons(dns_hdr->qd_count);
-            dns_hdr->an_count=htons(dns_hdr->an_count);
-            dns_hdr->ns_count=htons(dns_hdr->ns_count);
-            dns_hdr->ar_count=htons(dns_hdr->ar_count);
-
-            sendto(sockfd, (char *)buff, sizeof(DNS_HEADER) + qname_size + sizeof(QUESTION),0, (const struct sockaddr *)&cliaddr, sizeof(cliaddr));            continue;
+            sendto(client_sockfd, (char *)buff, sizeof(DNS_HEADER) + qname_size + sizeof(QUESTION),0, (const struct sockaddr *)&cliaddr,cli_len);
+            
+            continue;
         }
-
-
-
+        else
+        {
+            upstream_len = sizeof(upstream_dns_addr);
+            int temp_socket=socket(AF_INET,SOCK_DGRAM,0);
+            char *upstream_response=(char*)malloc(512); 
+        
+            int bytes_sent_upstream=sendto(temp_socket, (char *)buff, n ,0, (const struct sockaddr *)&upstream_dns_addr, upstream_len);  
+            int bytes_received_from_upstream = recvfrom(temp_socket, (char *)upstream_response, bytes_sent_upstream, 0, (struct sockaddr *)&servaddr, (socklen_t*)&upstream_len);
+    
+            sendto(client_sockfd,upstream_response,bytes_received_from_upstream,0,(const struct sockaddr*)&cliaddr,cli_len);
+            free(upstream_response);
+        }
     }
 
 
