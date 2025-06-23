@@ -16,18 +16,20 @@ Requirements
     A POSIX-compliant operating system (Linux, macOS).
 
 Building
-
     Clone the repository (or extract the archive) and navigate into the project directory:
+    
     git clone https://github.com/danserkiss/dns_proxy_server
     cd dns_proxy_server
 
 Run make:
+
     make
 
 This will compile the source code and create an executable file named dns_proxy in the current directory.
 
 Cleaning the project:
 To remove all compiled object files (.o) and the executable, run:
+
     make clean
 
 Configuration
@@ -36,9 +38,9 @@ The server reads its parameters from a config.txt file, which must be located in
 
 Example config.txt file:
 
-upstream_dns_ip=8.8.8.8
-blacklist=doubleclick.net,tracking.com,ads.example.com
-response=nxdomain
+    upstream_dns_ip=8.8.8.8
+    blacklist=doubleclick.net,tracking.com,ads.example.com
+    response=nxdomain
 
 Configuration Parameters:
 
@@ -58,6 +60,7 @@ Configuration Parameters:
 Running
 
 After building and configuring config.txt, you can start the server:
+
     sudo ./dns_proxy
 
 The server will listen on UDP port 53 at 127.0.0.1.
@@ -65,12 +68,14 @@ The server will listen on UDP port 53 at 127.0.0.1.
 To test the server, configure your system or DNS client (e.g., dig) to use 127.0.0.1 as its DNS server.
 dig Usage Examples:
     Query for a non-blacklisted domain:
+    
     dig @127.0.0.1 google.com
 
 You should receive a response forwarded from the upstream DNS server.
 
 Query for a blacklisted domain:
 If tracking.com is in your blacklist and response=nxdomain:
+
     dig @127.0.0.1 tracking.com
 
 You should receive an NXDOMAIN response. If response=refused, you'll see REFUSED.
@@ -83,26 +88,21 @@ Test Scenarios:
     Successful Query Forwarding (non-blacklisted domain):
         Action: dig @127.0.0.1 example.com (where example.com is not in the blacklist).
         Expected Result: The server forwards the query to upstream_dns_ip and returns the correct response to the client.
-
     Domain Blocking with NXDOMAIN Response:
         Configuration: blacklist=blocked.test,example.com, response=nxdomain.
         Action: dig @127.0.0.1 blocked.test.
         Expected Result: The server immediately responds to the client with NXDOMAIN (RCODE 3).
-
     Domain Blocking with REFUSED Response:
         Configuration: blacklist=blocked.test, response=refused.
         Action: dig @127.0.0.1 blocked.test.
         Expected Result: The server immediately responds to the client with REFUSED (RCODE 5).
-
     Handling Non-existent Domains (via upstream):
         Action: dig @127.0.0.1 non-existent-domain-12345.com (a domain guaranteed not to exist and not in the blacklist).
         Expected Result: The server forwards the query to upstream_dns_ip and returns the NXDOMAIN (RCODE 3) received from the upstream.
-
     Timeout or Upstream DNS Server Unavailability:
         Configuration: Set upstream_dns_ip to a non-existent or blocked IP address (e.g., 192.0.2.1).
         Action: dig @127.0.0.1 anydomain.com.
         Expected Result: The server waits for 2 seconds (due to SO_RCVTIMEO) and returns a SERVFAIL (RCODE 2) response to the client.
-
     Memory Allocation Failure during DNS Name Parsing:
         Action: (Difficult to simulate directly, but logic is handled) Simulating a scenario where malloc in Read_Name returns NULL.
         Expected Result: The server returns a SERVFAIL (RCODE 2) to the client and continues operation.
