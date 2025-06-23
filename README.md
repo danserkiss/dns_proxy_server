@@ -7,6 +7,7 @@ Table of Contents
     Building
     Configuration
     Running
+    Setting up Localhost as DNS Server
     Testing
     Known Limitations
 
@@ -34,7 +35,7 @@ To remove all compiled object files (.o) and the executable, run:
 
 Configuration
 
-The server reads its parameters from a config.txt file, which must be located in the same directory as the dns_proxy executable.
+    The server reads its parameters from a config.txt file, which must be located in the same directory as the dns_proxy executable.
 
 Example config.txt file:
 
@@ -65,7 +66,7 @@ After building and configuring config.txt, you can start the server:
 
 The server will listen on UDP port 53 at 127.0.0.1.
 
-To test the server, configure your system or DNS client (e.g., dig) to use 127.0.0.1 as its DNS server.
+To test the server, you'll need to configure your system or DNS client (e.g., dig) to use 127.0.0.1 as its DNS server. See the Setting up Localhost as DNS Server section for instructions.
 dig Usage Examples:
     Query for a non-blacklisted domain:
     
@@ -79,6 +80,52 @@ If tracking.com is in your blacklist and response=nxdomain:
     dig @127.0.0.1 tracking.com
 
 You should receive an NXDOMAIN response. If response=refused, you'll see REFUSED.
+
+Setting up Localhost as DNS Server
+
+To test the DNS proxy server, you need to configure your operating system or DNS client to use 127.0.0.1 (localhost) as its primary DNS server.
+
+Important: Remember to revert these changes after you are done testing to restore your normal internet connectivity.
+For Linux (Ubuntu/Debian-based systems using systemd-resolved):
+
+Many modern Linux distributions use systemd-resolved for DNS resolution.
+    Backup the original resolv.conf:
+
+    sudo cp /etc/resolv.conf /etc/resolv.conf.backup
+
+Edit resolv.conf:
+Open the resolv.conf file with a text editor. Note that resolv.conf is often managed by systemd-resolved and might be a symlink. We'll directly create a new one.
+
+    sudo nano /etc/resolv.conf
+
+Add 127.0.0.1 as the nameserver:
+Delete existing content and add the following lines:
+    
+    nameserver 127.0.0.1
+    options single-request-reopen
+
+Save and exit the editor (Ctrl+O, Enter, Ctrl+X for nano).
+
+Make resolv.conf immutable (optional, but recommended for testing):
+This prevents systemd-resolved or other services from overwriting your changes while you're testing.
+
+    sudo chattr +i /etc/resolv.conf
+
+Test your DNS resolution:
+After starting your DNS proxy server:
+
+    ping google.com
+
+If successful, your system is using your proxy.
+
+Revert changes after testing:
+
+    sudo chattr -i /etc/resolv.conf  # Make it mutable again
+    sudo rm /etc/resolv.conf        # Remove the modified file
+    sudo cp /etc/resolv.conf.backup /etc/resolv.conf # Restore original
+    sudo systemctl restart systemd-resolved.service # Restart resolved
+
+Or, simply reboot your system for systemd-resolved to regenerate it.
 
 Testing
 
